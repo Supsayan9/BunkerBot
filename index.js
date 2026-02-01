@@ -6,6 +6,7 @@ const {
   AttachmentBuilder,
 } = require("discord.js");
 const { joinVoiceChannel } = require("@discordjs/voice");
+const axios = require("axios"); // Для скачивания SVG
 const sharp = require("sharp"); // Для конвертации SVG в PNG
 
 const client = new Client({
@@ -19,7 +20,7 @@ const client = new Client({
 });
 
 const connections = new Map();
-const userCards = new Map(); // Хранение карточек игроков по userId
+const userCards = new Map();
 
 // ---------------- Шаблоны карточек ----------------
 const cardsTemplates = [
@@ -42,28 +43,29 @@ async function assignCardAndSendDM(member) {
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
   try {
-    // Генерация SVG с DiceBear
+    // URL SVG с DiceBear
     const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
       member.id
     )}.svg`;
 
-    // Скачиваем SVG через встроенный fetch
-    const res = await fetch(avatarUrl);
-    if (!res.ok) throw new Error("Не удалось скачать аватар");
+    // Скачиваем SVG
+    const response = await axios.get(avatarUrl, {
+      responseType: "arraybuffer",
+    });
+    const svgBuffer = Buffer.from(response.data);
 
-    const svgBuffer = Buffer.from(await res.arrayBuffer());
+    // Конвертируем в PNG
     const pngBuffer = await sharp(svgBuffer).png().toBuffer();
 
-    // Сохраняем карточку с картинкой
+    // Сохраняем карточку с PNG
     userCards.set(member.id, { ...card, avatar: pngBuffer });
 
     const attachment = new AttachmentBuilder(pngBuffer, { name: "card.png" });
 
     await member.send({
       content:
-        `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\n` +
-        `Твоя карточка персонажа:\n` +
-        `**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+        `Привет, ${member.displayName}! 🏰\n` +
+        `Твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
 
@@ -87,7 +89,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   ) {
     const guildId = newChannel.guild.id;
 
-    // Подключение бота к каналу
     if (!connections.has(guildId)) {
       try {
         const connection = joinVoiceChannel({
@@ -102,11 +103,9 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    // Выдача карточки
     assignCardAndSendDM(member);
   }
 
-  // ---------------- Авто-выход бота ----------------
   const connection = connections.get(newState.guild.id);
   if (connection) {
     const botChannel = newState.guild.channels.cache.get(
@@ -139,9 +138,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     const attachment = new AttachmentBuilder(card.avatar, { name: "card.png" });
     message.reply({
-      content:
-        `Вот твоя карточка персонажа:\n` +
-        `**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+      content: `Вот твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
   }
