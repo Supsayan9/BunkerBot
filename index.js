@@ -24,6 +24,7 @@ const client = new Client({
 
 const connections = new Map(); // Подключения к голосовым каналам
 const userCards = new Map(); // Карточки игроков
+const buttonPressed = new Set(); // Пользователи, которые уже нажали кнопку
 
 // ---------------- Шаблоны карточек ----------------
 const cardsTemplates = [
@@ -40,12 +41,11 @@ client.once(Events.ClientReady, () => {
 
 // ---------------- ФУНКЦИЯ ВЫДАЧИ КАРТОЧКИ ----------------
 async function assignCardAndSendDM(member) {
-  if (userCards.has(member.id)) return;
+  if (userCards.has(member.id)) return; // Если карточка уже есть, ничего не делаем
 
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
-  // Используем PNG аватар DiceBear, чтобы сразу было превью
   const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
     member.id
   )}.png`;
@@ -54,7 +54,6 @@ async function assignCardAndSendDM(member) {
 
   try {
     const attachment = new AttachmentBuilder(avatarUrl, { name: "card.png" });
-
     const dmChannel = await member.createDM();
     await dmChannel.send({
       content:
@@ -62,7 +61,6 @@ async function assignCardAndSendDM(member) {
         `Твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
-
     console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
   } catch (err) {
     console.log(`❌ Ошибка при выдаче карточки ${member.user.tag}: ${err}`);
@@ -99,22 +97,24 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    // Отправляем приветствие с кнопкой в DM
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("start_game")
-        .setLabel("Начать игру 🎮")
-        .setStyle(ButtonStyle.Primary)
-    );
+    // Отправляем приветствие с кнопкой только если пользователь ещё не получил карточку
+    if (!userCards.has(member.id)) {
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("start_game")
+          .setLabel("Начать игру 🎮")
+          .setStyle(ButtonStyle.Primary)
+      );
 
-    try {
-      const dmChannel = await member.createDM();
-      await dmChannel.send({
-        content: `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\nНажми кнопку ниже, чтобы получить свою карточку персонажа.`,
-        components: [row],
-      });
-    } catch (err) {
-      console.log(`❌ Не удалось отправить DM ${member.user.tag}: ${err}`);
+      try {
+        const dmChannel = await member.createDM();
+        await dmChannel.send({
+          content: `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\nНажми кнопку ниже, чтобы получить свою карточку персонажа.`,
+          components: [row],
+        });
+      } catch (err) {
+        console.log(`❌ Не удалось отправить DM ${member.user.tag}: ${err}`);
+      }
     }
   }
 
@@ -142,16 +142,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId === "start_game") {
+    if (buttonPressed.has(interaction.user.id)) {
+      return interaction.reply({
+        content: "❌ Вы уже получили свою карточку!",
+        ephemeral: true,
+      });
+    }
+
     await interaction.deferUpdate(); // Подтверждаем обработку кнопки
 
-    const dmMember = interaction.user; // пользователь, который нажал кнопку
+    // Добавляем пользователя в Set
+    buttonPressed.add(interaction.user.id);
 
-    // Отправляем карточку в DM
+    // Генерируем карточку
+    const dmMember = interaction.user;
     await assignCardAndSendDM(dmMember);
 
-    interaction.followUp({
+    // Делаем кнопку неактивной
+    const disabledRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("start_game")
+        .setLabel("Начать игру 🎮")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(true)
+    );
+
+    await interaction.editReply({
       content: "✅ Твоя карточка была отправлена в личные сообщения!",
-      ephemeral: true,
+      components: [disabledRow],
     });
   }
 });
