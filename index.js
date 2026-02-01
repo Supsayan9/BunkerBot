@@ -4,9 +4,11 @@ const {
   GatewayIntentBits,
   Events,
   AttachmentBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 const { joinVoiceChannel } = require("@discordjs/voice");
-const https = require("https");
 
 const client = new Client({
   intents: [
@@ -41,28 +43,65 @@ async function assignCardAndSendDM(member) {
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
-  // URL аватара DiceBear
+  // URL аватара DiceBear PNG
   const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
     member.id
   )}.png`;
 
-  // Сохраняем карточку с URL (не SVG) — Discord сразу отображает PNG
   userCards.set(member.id, { ...card, avatar: avatarUrl });
 
   try {
     const attachment = new AttachmentBuilder(avatarUrl, { name: "card.png" });
-    await member.send({
+
+    const dmChannel = await member.createDM();
+    await dmChannel.send({
       content:
-        `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\n` +
-        `Твоя карточка персонажа:\n` +
-        `**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+        `🎉 Поздравляю, ${member.displayName}! Ты готов начать игру.\n` +
+        `Вот твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
-    console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
+
+    console.log(`✅ Карточка отправлена ${member.user.tag}`);
   } catch (err) {
-    console.log(`❌ Ошибка при выдаче карточки ${member.user.tag}: ${err}`);
+    console.log(`❌ Ошибка при отправке карточки ${member.user.tag}: ${err}`);
   }
 }
+
+// ---------------- ФУНКЦИЯ ПРИВЕТСТВИЯ С КНОПКОЙ ----------------
+async function sendWelcomeMessage(member) {
+  const dmChannel = await member.createDM();
+
+  const startButton = new ButtonBuilder()
+    .setCustomId("start_game")
+    .setLabel("Начать игру")
+    .setStyle(ButtonStyle.Primary);
+
+  const row = new ActionRowBuilder().addComponents(startButton);
+
+  await dmChannel.send({
+    content: `Привет, ${member.displayName}! 🏰\nНажми кнопку ниже, чтобы начать игру и получить свою карточку персонажа.`,
+    components: [row],
+  });
+}
+
+// ---------------- ОБРАБОТКА НАЖАТИЯ КНОПКИ ----------------
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId === "start_game") {
+    await interaction.deferUpdate(); // Подтверждаем, что кнопку обработали
+    const member = interaction.user;
+
+    const guildMember = interaction.guild?.members.cache.get(member.id);
+    if (guildMember) {
+      assignCardAndSendDM(guildMember);
+      interaction.followUp({
+        content: "✅ Твоя карточка была отправлена в DM!",
+        ephemeral: true,
+      });
+    }
+  }
+});
 
 // ---------------- VOICE STATE UPDATE ----------------
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -92,7 +131,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    assignCardAndSendDM(member);
+    // Отправляем приветствие с кнопкой
+    sendWelcomeMessage(member);
   }
 
   const connection = connections.get(newState.guild.id);
@@ -127,9 +167,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     const attachment = new AttachmentBuilder(card.avatar, { name: "card.png" });
     message.reply({
-      content:
-        `Вот твоя карточка персонажа:\n` +
-        `**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+      content: `Вот твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
   }
