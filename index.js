@@ -15,7 +15,7 @@ const client = new Client({
 const connections = new Map();
 const userCards = new Map(); // Хранение карточек игроков по userId
 
-// Пример шаблонов карточек
+// ---------------- Шаблоны карточек ----------------
 const cardsTemplates = [
   { name: "Выживший", power: 5, skill: "Скрытность" },
   { name: "Инженер", power: 3, skill: "Создание ловушек" },
@@ -26,38 +26,34 @@ const cardsTemplates = [
 // ---------------- READY ----------------
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
-
-  // При запуске проверяем всех в канале "бункер" для авто-DM
-  client.guilds.cache.forEach(async (guild) => {
-    const bunkerChannel = guild.channels.cache.find(
-      (c) => c.type === 2 && c.name.toLowerCase() === "бункер"
-    );
-    if (!bunkerChannel) return;
-
-    bunkerChannel.members.forEach(async (member) => {
-      if (!member.user.bot) {
-        assignCardAndSendDM(member);
-      }
-    });
-  });
 });
 
 // ---------------- ФУНКЦИЯ ВЫДАЧИ КАРТОЧКИ ----------------
 async function assignCardAndSendDM(member) {
   if (userCards.has(member.id)) return; // Уже есть карточка
 
+  // Выбираем случайную карточку
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
-  userCards.set(member.id, card);
+
+  // Генерация аватара через DiceBear (или RoboHash)
+  const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
+    member.id
+  )}.svg`;
+
+  // Сохраняем
+  userCards.set(member.id, { ...card, avatar: avatarUrl });
 
   try {
-    await member.send(
-      `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\n` +
+    await member.send({
+      content:
+        `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\n` +
         `Твоя карточка персонажа:\n` +
         `**${card.name}**\n` +
         `Сила: ${card.power}\n` +
-        `Навык: ${card.skill}`
-    );
+        `Навык: ${card.skill}`,
+      files: [avatarUrl], // Отправляем картинку
+    });
     console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
   } catch {
     console.log(`❌ Не удалось отправить DM пользователю ${member.user.tag}`);
@@ -72,7 +68,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const oldChannel = oldState.channel;
   const newChannel = newState.channel;
 
-  // Новый пользователь вошёл в канал "бункер"
+  // Пользователь заходит в канал "бункер"
   if (
     (!oldChannel || oldChannel.id !== newChannel?.id) &&
     newChannel?.name.toLowerCase() === "бункер"
@@ -94,11 +90,11 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    // Отправка DM с карточкой
+    // Выдача карточки
     assignCardAndSendDM(member);
   }
 
-  // Авто-выход из канала
+  // ---------------- Авто-выход бота ----------------
   const connection = connections.get(newState.guild.id);
   if (connection) {
     const botChannel = newState.guild.channels.cache.get(
@@ -130,12 +126,14 @@ client.on(Events.MessageCreate, async (message) => {
       );
     }
 
-    message.reply(
-      `Вот твоя карточка персонажа:\n` +
+    message.reply({
+      content:
+        `Вот твоя карточка персонажа:\n` +
         `**${card.name}**\n` +
         `Сила: ${card.power}\n` +
-        `Навык: ${card.skill}`
-    );
+        `Навык: ${card.skill}`,
+      files: [card.avatar],
+    });
   }
 });
 
