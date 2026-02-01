@@ -21,7 +21,7 @@ const client = new Client({
 });
 
 const connections = new Map();
-const userCards = new Map(); // Хранение карточек игроков по userId
+const userCards = new Map(); // Хранение карточек игроков
 
 // ---------------- Шаблоны карточек ----------------
 const cardsTemplates = [
@@ -43,7 +43,7 @@ async function assignCardAndSendDM(member) {
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
-  // URL аватара DiceBear PNG
+  // Используем PNG аватар DiceBear, чтобы сразу было превью
   const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
     member.id
   )}.png`;
@@ -56,52 +56,16 @@ async function assignCardAndSendDM(member) {
     const dmChannel = await member.createDM();
     await dmChannel.send({
       content:
-        `🎉 Поздравляю, ${member.displayName}! Ты готов начать игру.\n` +
-        `Вот твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+        `Привет, ${member.displayName}! 🏰\n` +
+        `Твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
 
-    console.log(`✅ Карточка отправлена ${member.user.tag}`);
+    console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
   } catch (err) {
-    console.log(`❌ Ошибка при отправке карточки ${member.user.tag}: ${err}`);
+    console.log(`❌ Ошибка при выдаче карточки ${member.user.tag}: ${err}`);
   }
 }
-
-// ---------------- ФУНКЦИЯ ПРИВЕТСТВИЯ С КНОПКОЙ ----------------
-async function sendWelcomeMessage(member) {
-  const dmChannel = await member.createDM();
-
-  const startButton = new ButtonBuilder()
-    .setCustomId("start_game")
-    .setLabel("Начать игру")
-    .setStyle(ButtonStyle.Primary);
-
-  const row = new ActionRowBuilder().addComponents(startButton);
-
-  await dmChannel.send({
-    content: `Привет, ${member.displayName}! 🏰\nНажми кнопку ниже, чтобы начать игру и получить свою карточку персонажа.`,
-    components: [row],
-  });
-}
-
-// ---------------- ОБРАБОТКА НАЖАТИЯ КНОПКИ ----------------
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-
-  if (interaction.customId === "start_game") {
-    await interaction.deferUpdate(); // Подтверждаем, что кнопку обработали
-    const member = interaction.user;
-
-    const guildMember = interaction.guild?.members.cache.get(member.id);
-    if (guildMember) {
-      assignCardAndSendDM(guildMember);
-      interaction.followUp({
-        content: "✅ Твоя карточка была отправлена в DM!",
-        ephemeral: true,
-      });
-    }
-  }
-});
 
 // ---------------- VOICE STATE UPDATE ----------------
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -117,6 +81,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   ) {
     const guildId = newChannel.guild.id;
 
+    // Подключение бота к голосовому каналу
     if (!connections.has(guildId)) {
       try {
         const connection = joinVoiceChannel({
@@ -132,9 +97,24 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     }
 
     // Отправляем приветствие с кнопкой
-    sendWelcomeMessage(member);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("start_game")
+        .setLabel("Начать игру 🎮")
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    try {
+      await member.send({
+        content: `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\nНажми кнопку ниже, чтобы получить свою карточку персонажа.`,
+        components: [row],
+      });
+    } catch (err) {
+      console.log(`❌ Не удалось отправить DM ${member.user.tag}: ${err}`);
+    }
   }
 
+  // Авто-выход из канала, если никого нет
   const connection = connections.get(newState.guild.id);
   if (connection) {
     const botChannel = newState.guild.channels.cache.get(
@@ -150,6 +130,32 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         `🔌 Бот вышел из канала "${botChannel.name}" (никого не осталось)`
       );
     }
+  }
+});
+
+// ---------------- ОБРАБОТКА КНОПКИ ----------------
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId === "start_game") {
+    await interaction.deferUpdate(); // Подтверждаем обработку кнопки
+
+    const guildMember = interaction.guild.members.cache.get(
+      interaction.user.id
+    );
+    if (!guildMember) {
+      return interaction.followUp({
+        content: "❌ Не удалось найти участника на сервере.",
+        ephemeral: true,
+      });
+    }
+
+    await assignCardAndSendDM(guildMember);
+
+    interaction.followUp({
+      content: "✅ Твоя карточка была отправлена в личные сообщения!",
+      ephemeral: true,
+    });
   }
 });
 
