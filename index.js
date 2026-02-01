@@ -8,7 +8,6 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require("discord.js");
-const { joinVoiceChannel } = require("@discordjs/voice");
 
 const client = new Client({
   intents: [
@@ -20,8 +19,7 @@ const client = new Client({
   ],
 });
 
-const connections = new Map();
-const userCards = new Map(); // Хранение карточек игроков
+const userCards = new Map();
 
 // ---------------- Шаблоны карточек ----------------
 const cardsTemplates = [
@@ -37,33 +35,30 @@ client.once(Events.ClientReady, () => {
 });
 
 // ---------------- ФУНКЦИЯ ВЫДАЧИ КАРТОЧКИ ----------------
-async function assignCardAndSendDM(member) {
-  if (userCards.has(member.id)) return;
+async function assignCardAndSendDM(user) {
+  if (userCards.has(user.id)) return;
 
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
-  // Используем PNG аватар DiceBear, чтобы сразу было превью
+  // PNG аватар DiceBear
   const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
-    member.id
+    user.id
   )}.png`;
 
-  userCards.set(member.id, { ...card, avatar: avatarUrl });
+  userCards.set(user.id, { ...card, avatar: avatarUrl });
 
   try {
     const attachment = new AttachmentBuilder(avatarUrl, { name: "card.png" });
 
-    const dmChannel = await member.createDM();
-    await dmChannel.send({
-      content:
-        `Привет, ${member.displayName}! 🏰\n` +
-        `Твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
+    await user.send({
+      content: `Привет! 🏰\nТвоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
 
-    console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
+    console.log(`✅ Карточка отправлена ${user.tag}`);
   } catch (err) {
-    console.log(`❌ Ошибка при выдаче карточки ${member.user.tag}: ${err}`);
+    console.log(`❌ Ошибка отправки DM ${user.tag}: ${err}`);
   }
 }
 
@@ -72,63 +67,29 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const member = newState.member;
   if (!member || member.user.bot) return;
 
-  const oldChannel = oldState.channel;
   const newChannel = newState.channel;
 
-  if (
-    (!oldChannel || oldChannel.id !== newChannel?.id) &&
-    newChannel?.name.toLowerCase() === "бункер"
-  ) {
-    const guildId = newChannel.guild.id;
-
-    // Подключение бота к голосовому каналу
-    if (!connections.has(guildId)) {
-      try {
-        const connection = joinVoiceChannel({
-          channelId: newChannel.id,
-          guildId,
-          adapterCreator: newChannel.guild.voiceAdapterCreator,
-        });
-        connections.set(guildId, connection);
-        console.log(`🔊 Бот подключился к каналу "${newChannel.name}"`);
-      } catch (err) {
-        console.error("❌ Не удалось подключиться к голосовому каналу:", err);
-      }
-    }
-
-    // Отправляем приветствие с кнопкой
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("start_game")
-        .setLabel("Начать игру 🎮")
-        .setStyle(ButtonStyle.Primary)
-    );
-
+  if (newChannel?.name.toLowerCase() === "бункер") {
     try {
-      await member.send({
-        content: `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\nНажми кнопку ниже, чтобы получить свою карточку персонажа.`,
+      // Отправляем сообщение с кнопкой прямо в текстовый канал, связанный с голосовым
+      const textChannel = newChannel.guild.channels.cache.find(
+        (c) => c.isTextBased() && c.name.toLowerCase() === "general"
+      );
+      if (!textChannel) return;
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("start_game")
+          .setLabel("Начать игру 🎮")
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      await textChannel.send({
+        content: `Привет, ${member.displayName}! Нажми кнопку ниже, чтобы получить карточку персонажа.`,
         components: [row],
       });
     } catch (err) {
-      console.log(`❌ Не удалось отправить DM ${member.user.tag}: ${err}`);
-    }
-  }
-
-  // Авто-выход из канала, если никого нет
-  const connection = connections.get(newState.guild.id);
-  if (connection) {
-    const botChannel = newState.guild.channels.cache.get(
-      connection.joinConfig.channelId
-    );
-    if (!botChannel) return;
-
-    const nonBotMembers = botChannel.members.filter((m) => !m.user.bot);
-    if (nonBotMembers.size === 0) {
-      connection.destroy();
-      connections.delete(newState.guild.id);
-      console.log(
-        `🔌 Бот вышел из канала "${botChannel.name}" (никого не осталось)`
-      );
+      console.log(`❌ Ошибка отправки кнопки ${member.user.tag}: ${err}`);
     }
   }
 });
@@ -138,22 +99,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId === "start_game") {
-    await interaction.deferUpdate(); // Подтверждаем обработку кнопки
+    await interaction.deferUpdate();
 
-    const guildMember = interaction.guild.members.cache.get(
-      interaction.user.id
-    );
-    if (!guildMember) {
-      return interaction.followUp({
-        content: "❌ Не удалось найти участника на сервере.",
-        ephemeral: true,
-      });
-    }
+    await assignCardAndSendDM(interaction.user);
 
-    await assignCardAndSendDM(guildMember);
-
-    interaction.followUp({
-      content: "✅ Твоя карточка была отправлена в личные сообщения!",
+    await interaction.followUp({
+      content: "✅ Твоя карточка отправлена в личные сообщения!",
       ephemeral: true,
     });
   }
@@ -167,7 +118,7 @@ client.on(Events.MessageCreate, async (message) => {
     const card = userCards.get(message.author.id);
     if (!card) {
       return message.reply(
-        "У тебя пока нет карточки. Зайди в канал 'бункер', чтобы её получить!"
+        "У тебя пока нет карточки. Нажми кнопку 'Начать игру' в канале."
       );
     }
 
