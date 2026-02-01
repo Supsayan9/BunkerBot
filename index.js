@@ -81,7 +81,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   ) {
     const guildId = newChannel.guild.id;
 
-    // Подключаем бота к голосовому каналу
+    // ---------------- Подключаем бота к каналу ----------------
     if (!connections.has(guildId)) {
       try {
         const connection = joinVoiceChannel({
@@ -96,7 +96,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       }
     }
 
-    // Отправляем приветствие с кнопкой в ЛС
+    // ---------------- Отправка приветствия с кнопкой в ЛС ----------------
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("start_game")
@@ -114,7 +114,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     }
   }
 
-  // Авто-выход бота из канала, если никого не осталось
+  // ---------------- Авто-выход бота из канала ----------------
   const connection = connections.get(newState.guild.id);
   if (connection) {
     const botChannel = newState.guild.channels.cache.get(
