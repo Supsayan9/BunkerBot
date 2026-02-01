@@ -5,8 +5,7 @@ const {
   Events,
   AttachmentBuilder,
 } = require("discord.js");
-const { joinVoiceChannel, getVoiceConnection } = require("@discordjs/voice");
-const fetch = require("node-fetch"); // Для скачивания SVG
+const { joinVoiceChannel } = require("@discordjs/voice");
 const sharp = require("sharp"); // Для конвертации SVG в PNG
 
 const client = new Client({
@@ -42,19 +41,24 @@ async function assignCardAndSendDM(member) {
   const card =
     cardsTemplates[Math.floor(Math.random() * cardsTemplates.length)];
 
-  // Скачиваем SVG с DiceBear и конвертируем в PNG
-  const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
-    member.id
-  )}.svg`;
-  const response = await fetch(avatarUrl);
-  const svgBuffer = await response.buffer();
-  const pngBuffer = await sharp(svgBuffer).png().toBuffer();
-
-  // Сохраняем в Map
-  userCards.set(member.id, { ...card, avatar: pngBuffer });
-
   try {
+    // Генерация SVG с DiceBear
+    const avatarUrl = `https://avatars.dicebear.com/api/bottts/${encodeURIComponent(
+      member.id
+    )}.svg`;
+
+    // Скачиваем SVG через встроенный fetch
+    const res = await fetch(avatarUrl);
+    if (!res.ok) throw new Error("Не удалось скачать аватар");
+
+    const svgBuffer = Buffer.from(await res.arrayBuffer());
+    const pngBuffer = await sharp(svgBuffer).png().toBuffer();
+
+    // Сохраняем карточку с картинкой
+    userCards.set(member.id, { ...card, avatar: pngBuffer });
+
     const attachment = new AttachmentBuilder(pngBuffer, { name: "card.png" });
+
     await member.send({
       content:
         `Привет, ${member.displayName}! Добро пожаловать в Бункер! 🏰\n` +
@@ -62,9 +66,10 @@ async function assignCardAndSendDM(member) {
         `**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
       files: [attachment],
     });
+
     console.log(`✅ Отправлено приветствие и карточка ${member.user.tag}`);
-  } catch {
-    console.log(`❌ Не удалось отправить DM пользователю ${member.user.tag}`);
+  } catch (err) {
+    console.log(`❌ Ошибка при выдаче карточки ${member.user.tag}: ${err}`);
   }
 }
 
