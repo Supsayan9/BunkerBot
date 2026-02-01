@@ -62,7 +62,9 @@ async function assignCardAndSendDM(member) {
 
     const attachment = new AttachmentBuilder(pngBuffer, { name: "card.png" });
 
-    await member.send({
+    // Создаём DM канал явно
+    const dmChannel = await member.createDM();
+    await dmChannel.send({
       content:
         `Привет, ${member.displayName}! 🏰\n` +
         `Твоя карточка персонажа:\n**${card.name}**\nСила: ${card.power}\nНавык: ${card.skill}`,
