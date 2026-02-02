@@ -8,10 +8,19 @@ const {
   ButtonStyle,
   AttachmentBuilder,
 } = require("discord.js");
-
 const { OpenAI } = require("openai");
 
-// ---------------- DISCORD ----------------
+// ---------------- Проверка токенов ----------------
+if (!process.env.DISCORD_TOKEN) {
+  console.error("❌ DISCORD_TOKEN не найден в .env");
+  process.exit(1);
+}
+if (!process.env.OPENROUTER_API_KEY) {
+  console.error("❌ OPENROUTER_API_KEY не найден в .env");
+  process.exit(1);
+}
+
+// ---------------- Инициализация бота ----------------
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -21,24 +30,24 @@ const client = new Client({
   ],
 });
 
-const userCards = new Map(); // Готовые карточки
-const greetedUsers = new Set(); // Чтобы не слать кнопку дважды
-const pendingUsers = new Set(); // Чтобы не делать несколько запросов одновременно
-
-// ---------------- OPENROUTER ----------------
+// ---------------- OpenRouter ----------------
 const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
+
+// ---------------- Состояние пользователей ----------------
+const userCards = new Map(); // Готовые карточки
+const greetedUsers = new Set(); // Чтобы не слать кнопку дважды
+const pendingUsers = new Set(); // Чтобы не делать несколько запросов одновременно
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
-// ---------------- ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ КАРТОЧКИ ----------------
+// ---------------- Генерация карточки ----------------
 async function generateAICard(userId) {
-  try {
-    const prompt = `
+  const prompt = `
 Создай уникальную карточку персонажа для игры "Бункер".
 Формат: JSON
 Поля:
@@ -52,29 +61,27 @@ hobby - хобби
 secret - секрет
 `;
 
+  try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
-    const text = response.choices?.[0]?.message?.content;
-    if (!text) throw new Error("❌ Пустой ответ от OpenRouter");
-
-    let cardData = {};
+    const text = response.choices?.[0]?.message?.content || "";
+    let card = {};
     try {
-      cardData = JSON.parse(text);
+      card = JSON.parse(text);
     } catch {
-      cardData = { error: true, raw: text };
+      card = { error: true, raw: text };
     }
-
-    return cardData;
+    return card;
   } catch (err) {
     console.error("❌ Ошибка при генерации карточки:", err);
     return { error: true };
   }
 }
 
-// ---------------- ВЫДАЧА КАРТОЧКИ ----------------
+// ---------------- Выдача карточки ----------------
 async function giveCard(user) {
   if (!user || !user.id) return;
   if (userCards.has(user.id) || pendingUsers.has(user.id)) return;
@@ -82,7 +89,6 @@ async function giveCard(user) {
   pendingUsers.add(user.id);
 
   const card = await generateAICard(user.id);
-
   pendingUsers.delete(user.id);
 
   if (card.error) {
@@ -98,8 +104,7 @@ async function giveCard(user) {
   const file = new AttachmentBuilder(avatar, { name: "card.png" });
 
   try {
-    const dm = await user.createDM();
-    await dm.send({
+    await user.send({
       content:
         `🎴 **Твоя карточка персонажа**\n\n` +
         `👤 Роль: **${card.name || "–"}**\n` +
@@ -113,11 +118,11 @@ async function giveCard(user) {
       files: [file],
     });
   } catch (err) {
-    console.log(`❌ Не удалось отправить DM ${user.id}:`, err);
+    console.error(`❌ Не удалось отправить DM пользователю ${user.id}:`, err);
   }
 }
 
-// ---------------- ВХОД В КАНАЛ ----------------
+// ---------------- Вход в канал ----------------
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const member = newState.member;
   if (!member || member.user.bot) return;
@@ -147,7 +152,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 });
 
-// ---------------- ОБРАБОТКА КНОПКИ ----------------
+// ---------------- Обработка кнопки ----------------
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId !== "get_card") return;
@@ -182,4 +187,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   });
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// ---------------- Логин ----------------
+client.login(process.env.DISCORD_TOKEN).catch((err) => {
+  console.error("❌ Не удалось подключиться к Discord:", err);
+});
