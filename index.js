@@ -11,12 +11,8 @@ const {
 const fetch = require("node-fetch");
 
 // ---------------- Проверка токенов ----------------
-if (!process.env.DISCORD_TOKEN) {
-  console.error("❌ DISCORD_TOKEN не найден в .env");
-  process.exit(1);
-}
-if (!process.env.APIFREE_KEY) {
-  console.error("❌ APIFREE_KEY не найден в .env");
+if (!process.env.DISCORD_TOKEN || !process.env.APIFREE_KEY) {
+  console.error("❌ Токены не найдены");
   process.exit(1);
 }
 
@@ -31,7 +27,7 @@ const client = new Client({
 });
 
 // ---------------- Состояние ----------------
-const userCards = new Map();
+const userCards = new Set();
 const greetedUsers = new Set();
 const pendingUsers = new Set();
 
@@ -47,10 +43,9 @@ function chooseApocalypse() {
     "Экономический коллапс",
   ];
   currentApocalypse = types[Math.floor(Math.random() * types.length)];
-  console.log("🌍 Апокалипсис этой сессии:", currentApocalypse);
+  console.log("🌍 Апокалипсис:", currentApocalypse);
 }
 
-// ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
   chooseApocalypse();
   console.log(`✅ Бот запущен как ${client.user.tag}`);
@@ -60,17 +55,9 @@ client.once(Events.ClientReady, () => {
 async function generatePlayerCard() {
   const prompt = `
 Ты создаёшь персонажа для игры "Бункер Онлайн".
-
 Апокалипсис: "${currentApocalypse}"
 
-Сгенерируй ОДНУ карточку игрока.
-
-Правила:
-- Возраст: ТОЛЬКО число от 10 до 100
-- В каждом пункте строго ОДНО условие
-- Никаких "—", "нет", "отсутствует"
-
-ФОРМАТ СТРОГО ТАКОЙ (НЕ МЕНЯЙ):
+Строгий формат:
 
 🃏 Карта 1 — Профессия
 <текст>
@@ -79,7 +66,7 @@ async function generatePlayerCard() {
 <текст>
 
 🃏 Карта 3 — Биологические характеристики
-<пол, возраст, физическая форма>
+<пол, возраст (10–100), форма>
 
 🃏 Карта 4 — Хобби
 <текст>
@@ -109,13 +96,18 @@ async function generatePlayerCard() {
     body: JSON.stringify({
       model: "openai/gpt-5.2",
       messages: [{ role: "user", content: prompt }],
-      temperature: 1.15,
+      temperature: 1.1,
       max_tokens: 900,
     }),
   });
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content || null;
+}
+
+// ---------------- Безопасное извлечение ----------------
+function safe(blocks, index) {
+  return blocks[index]?.slice(0, 1024) || "Неизвестно";
 }
 
 // ---------------- Выдача карточки ----------------
@@ -126,89 +118,43 @@ async function giveCard(user) {
   const text = await generatePlayerCard();
   pendingUsers.delete(user.id);
 
-  if (!text) {
-    await user.send("❌ Ошибка генерации карточки.");
-    return;
-  }
+  if (!text) return user.send("❌ Ошибка генерации.");
 
-  userCards.set(user.id, true);
+  userCards.add(user.id);
   const blocks = text.split("\n\n");
 
   const embed = new EmbedBuilder()
     .setTitle("🎴 ПЕРСОНАЖ В БУНКЕРЕ")
-    .setDescription(
-      `━━━━━━━━━━━━━━━━━━\n` +
-        `🌍 **АПОКАЛИПСИС**\n` +
-        `**${currentApocalypse}**\n` +
-        `━━━━━━━━━━━━━━━━━━`
-    )
+    .setDescription(`🌍 **${currentApocalypse}**`)
     .setColor(0x8e44ad)
     .addFields(
-      { name: "🃏 Профессия", value: blocks[1], inline: true },
-      { name: "❤️ Здоровье", value: blocks[3], inline: true },
-      { name: "🧬 Биология", value: blocks[5], inline: false },
-      { name: "🎲 Хобби", value: blocks[7], inline: true },
-      { name: "💀 Фобия", value: blocks[9], inline: true },
-      { name: "📎 Информация", value: blocks[11], inline: false },
-      { name: "🧠 Качества", value: blocks[13], inline: false },
-      { name: "🟣 Спец-условие I", value: blocks[15], inline: false },
-      { name: "🟣 Спец-условие II", value: blocks[17], inline: false }
+      { name: "🃏 Профессия", value: safe(blocks, 1), inline: true },
+      { name: "❤️ Здоровье", value: safe(blocks, 3), inline: true },
+      { name: "🧬 Биология", value: safe(blocks, 5) },
+      { name: "🎲 Хобби", value: safe(blocks, 7), inline: true },
+      { name: "💀 Фобия", value: safe(blocks, 9), inline: true },
+      { name: "📎 Информация", value: safe(blocks, 11) },
+      { name: "🧠 Качества", value: safe(blocks, 13) },
+      { name: "🟣 Спец-условие I", value: safe(blocks, 15) },
+      { name: "🟣 Спец-условие II", value: safe(blocks, 17) }
     )
-    .setFooter({
-      text: "Бункер Онлайн • Каждое решение — на вес жизни",
-    })
+    .setFooter({ text: "Бункер Онлайн • Выживет не каждый" })
     .setTimestamp();
 
   await user.send({ embeds: [embed] });
 }
 
-// ---------------- Вход в голос ----------------
-client.on(Events.VoiceStateUpdate, async (_, newState) => {
-  const member = newState.member;
-  if (!member || member.user.bot) return;
-
-  if (
-    newState.channel &&
-    newState.channel.name.toLowerCase() === "бункер" &&
-    !greetedUsers.has(member.id)
-  ) {
-    greetedUsers.add(member.id);
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("get_card")
-        .setLabel("Получить карточку 🎴")
-        .setStyle(ButtonStyle.Primary)
-    );
-
-    await member.send({
-      content:
-        "🏰 **Ты вошёл в Бункер.**\n\nНажми кнопку, чтобы узнать свою судьбу.",
-      components: [row],
-    });
-  }
-});
-
 // ---------------- Кнопка ----------------
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId !== "get_card") return;
+  if (!interaction.isButton() || interaction.customId !== "get_card") return;
 
   if (userCards.has(interaction.user.id)) {
-    return interaction.reply({
-      content: "❌ Карта уже получена.",
-      ephemeral: true,
-    });
+    return interaction.reply({ content: "❌ Карта уже получена.", flags: 64 });
   }
 
-  await interaction.reply({
-    content: "⌛ Судьба формируется...",
-    ephemeral: true,
-  });
+  await interaction.reply({ content: "⌛ Генерация...", flags: 64 });
   await giveCard(interaction.user);
-  await interaction.editReply({
-    content: "✅ Карточка отправлена в личные сообщения.",
-  });
+  await interaction.editReply("✅ Карточка отправлена в ЛС.");
 });
 
 // ---------------- Логин ----------------
