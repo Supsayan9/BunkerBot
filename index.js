@@ -15,8 +15,8 @@ if (!process.env.DISCORD_TOKEN) {
   console.error("❌ DISCORD_TOKEN не найден в .env");
   process.exit(1);
 }
-if (!process.env.OPENROUTER_API_KEY) {
-  console.error("❌ OPENROUTER_API_KEY не найден в .env");
+if (!process.env.APIFREE_KEY) {
+  console.error("❌ APIFREE_KEY не найден в .env");
   process.exit(1);
 }
 
@@ -28,82 +28,87 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
   ],
-  partials: ["CHANNEL"], // чтобы бот мог отправлять DM
+  partials: ["CHANNEL"],
 });
 
 // ---------------- Состояние пользователей ----------------
 const userCards = new Map();
 const greetedUsers = new Set();
 const pendingUsers = new Set();
-let currentApocalypse = null;
+
+// ---------------- Апокалипсис ----------------
+let currentApocalypse = "";
+
+// ---------------- Выбор апокалипсиса ----------------
+function chooseApocalypse() {
+  const types = [
+    "Глобальная ядерная война",
+    "Зомби-апокалипсис",
+    "Пандемия неизвестного вируса",
+    "Климатическая катастрофа",
+    "Экономический коллапс",
+  ];
+  currentApocalypse = types[Math.floor(Math.random() * types.length)];
+  console.log("🌍 Апокалипсис этой сессии:", currentApocalypse);
+}
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
+  chooseApocalypse();
   console.log(`✅ Бот запущен как ${client.user.tag}`);
-  // Назначаем апокалипсис для сессии
-  const apocalypseList = [
-    "Глобальная ядерная война",
-    "Зомби-апокалипсис",
-    "Эпидемия неизвестного вируса",
-    "Падение метеорита",
-    "Экологическая катастрофа",
-  ];
-  currentApocalypse =
-    apocalypseList[Math.floor(Math.random() * apocalypseList.length)];
-  console.log(`🌍 Апокалипсис этой сессии: ${currentApocalypse}`);
 });
 
-// ---------------- Генерация карточки ----------------
+// ---------------- Генерация карточки через ИИ ----------------
 async function generateAICard(userId) {
   const prompt = `
-Создай уникальную карточку персонажа для игры "Бункер Онлайн".
-Апокалипсис должен быть одинаковый для всех игроков.
-Карточка должна быть в формате JSON со следующими полями:
-- Пол
-- Телосложение
-- Человеческая черта
-- Профессия
-- Здоровье
-- Хобби / Увлечение
-- Фобия / Страх
-- Крупный инвентарь
-- Рюкзак (массив предметов)
-- Дополнительное сведение
-- Спец. возможность
-- Апокалипсис
-
-Сделай персонажа интересным, с разнообразными чертами и увлекательной историей. 
-Не добавляй лишнего текста вне JSON.
+Создай уникальную карточку персонажа для игры "Бункер Онлайн" строго в формате JSON.
+В JSON должны быть поля: Пол, Телосложение, Человеческая черта, Профессия, Здоровье, Хобби / Увлечение, Фобия / Страх, Крупный инвентарь, Рюкзак, Дополнительное сведение, Спец. возможность.
+⚠️ Учитывай тип апокалипсиса "${currentApocalypse}" при выборе профессии, предметов, здоровья и способностей.
+Добавь эмодзи к предметам в рюкзаке и крупном инвентаре.
+Возраст генерируется в коде (от 10 до 100).
+Здоровье — объект с параметрами (например "Иммунитет", "Выносливость").
+Выводи **только JSON**, без пояснений, текста и кавычек вокруг JSON.
+Добавь поле:
+- "Апокалипсис": "${currentApocalypse}"
 `;
 
   try {
-    const response = await fetch("https://api.apifree.ai/v1/chat/completions", {
+    const res = await fetch("https://api.apifree.ai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${process.env.APIFREE_KEY}`,
       },
       body: JSON.stringify({
         model: "openai/gpt-5.2",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 4096,
+        max_tokens: 1024,
       }),
     });
 
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || "";
+    const data = await res.json();
+    let text = data.choices?.[0]?.message?.content || "";
 
-    try {
-      const jsonCard = JSON.parse(text);
-      // На случай, если апокалипсис не пришёл от модели
-      if (!jsonCard.Апокалипсис) {
-        jsonCard.Апокалипсис = currentApocalypse;
-      }
-      return jsonCard;
-    } catch {
-      console.error("❌ Ошибка парсинга JSON от GPT 5.2:", text);
+    // Вырезаем JSON из текста на всякий случай
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+      console.error("❌ Не удалось найти JSON в ответе GPT:", text);
       return { error: true, raw: text };
     }
+
+    let card = JSON.parse(match[0]);
+
+    // Если здоровье вернулось как объект, конвертируем в строку
+    if (typeof card.Здоровье === "object" && card.Здоровье !== null) {
+      card.Здоровье = Object.entries(card.Здоровье)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+    }
+
+    // Генерируем возраст рандомно от 10 до 100
+    card.Возраст = Math.floor(Math.random() * 91) + 10;
+
+    return card;
   } catch (err) {
     console.error("❌ Ошибка при генерации карточки:", err);
     return { error: true };
@@ -116,7 +121,6 @@ async function giveCard(user) {
   if (userCards.has(user.id) || pendingUsers.has(user.id)) return;
 
   pendingUsers.add(user.id);
-
   const card = await generateAICard(user.id);
   pendingUsers.delete(user.id);
 
@@ -129,52 +133,64 @@ async function giveCard(user) {
 
   userCards.set(user.id, card);
 
+  // Рюкзак и крупный инвентарь с эмодзи
   const backpack = Array.isArray(card.Рюкзак)
-    ? card.Рюкзак.join("\n")
+    ? card.Рюкзак.map((item) => `• ${item}`).join("\n")
     : String(card.Рюкзак || "–");
 
+  const largeInventory = Array.isArray(card["Крупный инвентарь"])
+    ? card["Крупный инвентарь"].map((item) => `• ${item}`).join("\n")
+    : String(card["Крупный инвентарь"] || "–");
+
   const embed = new EmbedBuilder()
-    .setTitle("🎴 Карточка персонажа для Бункера Онлайн")
+    .setTitle("🎴 Карточка персонажа")
     .setColor(0x1abc9c)
+    .setDescription(
+      `🌍 Апокалипсис: **${card.Апокалипсис || currentApocalypse}**`
+    )
     .addFields(
-      { name: "🌍 Апокалипсис", value: card.Апокалипсис, inline: true },
-      { name: "👤 Пол", value: card.Пол || "–", inline: true },
+      { name: "👤 Пол", value: String(card.Пол || "–"), inline: true },
       {
         name: "💪 Телосложение",
-        value: card.Телосложение || "–",
+        value: String(card.Телосложение || "–"),
+        inline: true,
+      },
+      { name: "🎂 Возраст", value: String(card.Возраст || "–"), inline: true },
+      {
+        name: "🧠 Черта",
+        value: String(card["Человеческая черта"] || "–"),
+        inline: false,
+      },
+      {
+        name: "⚒ Профессия",
+        value: String(card.Профессия || "–"),
         inline: true,
       },
       {
-        name: "🧠 Черта",
-        value: card["Человеческая черта"] || "–",
-        inline: false,
+        name: "❤️ Здоровье",
+        value: String(card.Здоровье || "–"),
+        inline: true,
       },
-      { name: "⚒ Профессия", value: card.Профессия || "–", inline: true },
-      { name: "❤️ Здоровье", value: card.Здоровье || "–", inline: true },
       {
-        name: "🎲 Хобби/Увлечение",
-        value: card["Хобби / Увлечение"] || "–",
+        name: "🎲 Хобби / Увлечение",
+        value: String(card["Хобби / Увлечение"] || "–"),
         inline: false,
       },
       {
-        name: "💀 Фобия/Страх",
-        value: card["Фобия / Страх"] || "–",
+        name: "💀 Фобия / Страх",
+        value: String(card["Фобия / Страх"] || "–"),
         inline: false,
       },
-      {
-        name: "🎒 Крупный инвентарь",
-        value: card["Крупный инвентарь"] || "–",
-        inline: false,
-      },
-      { name: "👜 Рюкзак", value: backpack || "–", inline: false },
+      { name: "🎒 Крупный инвентарь", value: largeInventory, inline: false },
+      { name: "👜 Рюкзак", value: backpack, inline: false },
       {
         name: "📝 Доп. сведения",
-        value: card["Дополнительное сведение"] || "–",
+        value: String(card["Дополнительное сведение"] || "–"),
         inline: false,
       },
       {
         name: "✨ Спец. возможность",
-        value: card["Спец. возможность"] || "–",
+        value: String(card["Спец. возможность"] || "–"),
         inline: false,
       }
     )
@@ -227,16 +243,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (userCards.has(interaction.user.id)) {
     return interaction.reply({
       content: "❌ У тебя уже есть карточка.",
-      flags: 64, // заменяем deprecated ephemeral
+      ephemeral: true,
     });
   }
 
   if (pendingUsers.has(interaction.user.id)) {
     return interaction.reply({
       content: "⌛ Карточка формируется, подожди немного...",
-      flags: 64,
+      ephemeral: true,
     });
   }
+
+  await interaction.reply({
+    content: "⌛ Карточка формируется, подождите немного...",
+    ephemeral: true,
+  });
 
   await giveCard(interaction.user);
 
@@ -249,15 +270,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
   );
 
   try {
-    await interaction.update({
+    if (interaction.message) {
+      await interaction.message.edit({ components: [disabledRow] });
+    }
+    await interaction.editReply({
       content: "✅ Карточка отправлена в личные сообщения.",
-      components: [disabledRow],
     });
   } catch (err) {
-    console.error(
-      `❌ Не удалось обновить кнопку для ${interaction.user.id}:`,
-      err
-    );
+    console.error("❌ Ошибка при обновлении кнопки:", err);
   }
 });
 
