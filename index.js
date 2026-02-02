@@ -11,12 +11,16 @@ const {
 const fetch = require("node-fetch");
 
 // ---------------- Проверка токенов ----------------
-if (!process.env.DISCORD_TOKEN || !process.env.APIFREE_KEY) {
-  console.error("❌ Токены не найдены");
+if (!process.env.DISCORD_TOKEN) {
+  console.error("❌ DISCORD_TOKEN не найден в .env");
+  process.exit(1);
+}
+if (!process.env.APIFREE_KEY) {
+  console.error("❌ APIFREE_KEY не найден в .env");
   process.exit(1);
 }
 
-// ---------------- Инициализация ----------------
+// ---------------- Инициализация бота ----------------
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -27,7 +31,7 @@ const client = new Client({
 });
 
 // ---------------- Состояние ----------------
-const userCards = new Set();
+const userCards = new Map();
 const greetedUsers = new Set();
 const pendingUsers = new Set();
 
@@ -43,21 +47,31 @@ function chooseApocalypse() {
     "Экономический коллапс",
   ];
   currentApocalypse = types[Math.floor(Math.random() * types.length)];
-  console.log("🌍 Апокалипсис:", currentApocalypse);
+  console.log("🌍 Апокалипсис этой сессии:", currentApocalypse);
 }
 
+// ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
   chooseApocalypse();
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
-// ---------------- Генерация карточки ----------------
+// ---------------- Генерация ОДНОЙ карточки ----------------
 async function generatePlayerCard() {
   const prompt = `
-Ты создаёшь персонажа для игры "Бункер Онлайн".
+Ты — генератор персонажей для игры "Бункер Онлайн".
+
 Апокалипсис: "${currentApocalypse}"
 
-Строгий формат:
+Сгенерируй ОДНУ карточку игрока.
+ВСЕ пункты должны быть СЛУЧАЙНЫМИ и логичными для этого апокалипсиса.
+
+Правила:
+- Возраст строго число от 10 до 100
+- В каждом пункте ТОЛЬКО ОДНО условие
+- Никаких прочерков, "нет", "—"
+
+Формат ВЫВОДА СТРОГО такой:
 
 🃏 Карта 1 — Профессия
 <текст>
@@ -66,7 +80,7 @@ async function generatePlayerCard() {
 <текст>
 
 🃏 Карта 3 — Биологические характеристики
-<пол, возраст (10–100), форма>
+<пол, возраст, физическая форма>
 
 🃏 Карта 4 — Хобби
 <текст>
@@ -105,56 +119,138 @@ async function generatePlayerCard() {
   return data.choices?.[0]?.message?.content || null;
 }
 
-// ---------------- Безопасное извлечение ----------------
-function safe(blocks, index) {
-  return blocks[index]?.slice(0, 1024) || "Неизвестно";
-}
-
 // ---------------- Выдача карточки ----------------
 async function giveCard(user) {
   if (userCards.has(user.id) || pendingUsers.has(user.id)) return;
 
   pendingUsers.add(user.id);
-  const text = await generatePlayerCard();
+  const cardText = await generatePlayerCard();
   pendingUsers.delete(user.id);
 
-  if (!text) return user.send("❌ Ошибка генерации.");
+  if (!cardText) {
+    await user.send("❌ Не удалось создать карточку. Попробуй позже.");
+    return;
+  }
 
-  userCards.add(user.id);
-  const blocks = text.split("\n\n");
+  userCards.set(user.id, true);
+
+  // Делим текст на блоки
+  const blocks = cardText.split("\n\n");
 
   const embed = new EmbedBuilder()
-    .setTitle("🎴 ПЕРСОНАЖ В БУНКЕРЕ")
-    .setDescription(`🌍 **${currentApocalypse}**`)
-    .setColor(0x8e44ad)
-    .addFields(
-      { name: "🃏 Профессия", value: safe(blocks, 1), inline: true },
-      { name: "❤️ Здоровье", value: safe(blocks, 3), inline: true },
-      { name: "🧬 Биология", value: safe(blocks, 5) },
-      { name: "🎲 Хобби", value: safe(blocks, 7), inline: true },
-      { name: "💀 Фобия", value: safe(blocks, 9), inline: true },
-      { name: "📎 Информация", value: safe(blocks, 11) },
-      { name: "🧠 Качества", value: safe(blocks, 13) },
-      { name: "🟣 Спец-условие I", value: safe(blocks, 15) },
-      { name: "🟣 Спец-условие II", value: safe(blocks, 17) }
+    .setTitle("🎴 КАРТОЧКА ИГРОКА")
+    .setDescription(
+      `╔════════════════════╗\n` +
+        `🌍 **АПОКАЛИПСИС** 🌍\n` +
+        `**${currentApocalypse}**\n` +
+        `╚════════════════════╝`
     )
-    .setFooter({ text: "Бункер Онлайн • Выживет не каждый" })
+    .setColor(0x9b59b6)
+    .setThumbnail("https://i.imgur.com/7yUvePI.png") // можно заменить
+    .addFields(
+      {
+        name: "🃏 Профессия",
+        value: blocks[1] || "—",
+        inline: true,
+      },
+      {
+        name: "❤️ Здоровье",
+        value: blocks[3] || "—",
+        inline: true,
+      },
+      {
+        name: "🧬 Биологические характеристики",
+        value: blocks[5] || "—",
+        inline: false,
+      },
+      {
+        name: "🎲 Хобби",
+        value: blocks[7] || "—",
+        inline: true,
+      },
+      {
+        name: "💀 Фобия",
+        value: blocks[9] || "—",
+        inline: true,
+      },
+      {
+        name: "📎 Дополнительная информация",
+        value: blocks[11] || "—",
+        inline: false,
+      },
+      {
+        name: "🧠 Человеческие качества",
+        value: blocks[13] || "—",
+        inline: false,
+      },
+      {
+        name: "🟣 Специальное условие I",
+        value: blocks[15] || "—",
+        inline: false,
+      },
+      {
+        name: "🟣 Специальное условие II",
+        value: blocks[17] || "—",
+        inline: false,
+      }
+    )
+    .setFooter({
+      text: "Бункер Онлайн • Судьба человечества решается сейчас",
+    })
     .setTimestamp();
 
   await user.send({ embeds: [embed] });
 }
 
+// ---------------- Вход в голос ----------------
+client.on(Events.VoiceStateUpdate, async (_, newState) => {
+  const member = newState.member;
+  if (!member || member.user.bot) return;
+
+  if (
+    newState.channel &&
+    newState.channel.name.toLowerCase() === "бункер" &&
+    !greetedUsers.has(member.id)
+  ) {
+    greetedUsers.add(member.id);
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("get_card")
+        .setLabel("Получить карточку 🎴")
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    await member.send({
+      content:
+        "🏰 **Добро пожаловать в Бункер Онлайн!**\n\nНажми кнопку, чтобы получить свою карточку.",
+      components: [row],
+    });
+  }
+});
+
 // ---------------- Кнопка ----------------
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton() || interaction.customId !== "get_card") return;
+  if (!interaction.isButton()) return;
+  if (interaction.customId !== "get_card") return;
 
   if (userCards.has(interaction.user.id)) {
-    return interaction.reply({ content: "❌ Карта уже получена.", flags: 64 });
+    return interaction.reply({
+      content: "❌ У тебя уже есть карточка.",
+      ephemeral: true,
+    });
   }
 
-  await interaction.reply({ content: "⌛ Генерация...", flags: 64 });
+  await interaction.reply({
+    content: "⌛ Карточка формируется...",
+    ephemeral: true,
+  });
+
   await giveCard(interaction.user);
-  await interaction.editReply("✅ Карточка отправлена в ЛС.");
+
+  await interaction.editReply({
+    content: "✅ Карточка отправлена в личные сообщения.",
+  });
 });
 
 // ---------------- Логин ----------------
