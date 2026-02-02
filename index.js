@@ -24,10 +24,12 @@ if (!process.env.OPENROUTER_API_KEY) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent,
   ],
+  partials: ["CHANNEL"], // нужно для DM
 });
 
 // ---------------- OpenRouter ----------------
@@ -35,10 +37,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-// ---------------- Состояние пользователей ----------------
-const userCards = new Map(); // Готовые карточки
-const greetedUsers = new Set(); // Чтобы не слать кнопку дважды
-const pendingUsers = new Set(); // Чтобы не делать несколько запросов одновременно
+// ---------------- Состояние ----------------
+const userCards = new Map();
+const greetedUsers = new Set();
+const pendingUsers = new Set();
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
@@ -46,7 +48,7 @@ client.once(Events.ClientReady, () => {
 });
 
 // ---------------- Генерация карточки ----------------
-async function generateAICard(userId) {
+async function generateAICard() {
   const prompt = `
 Создай уникальную карточку персонажа для игры "Бункер".
 Формат: JSON
@@ -68,7 +70,7 @@ secret - секрет
     });
 
     const text = response.choices?.[0]?.message?.content || "";
-    let card = {};
+    let card;
     try {
       card = JSON.parse(text);
     } catch {
@@ -76,7 +78,7 @@ secret - секрет
     }
     return card;
   } catch (err) {
-    console.error("❌ Ошибка при генерации карточки:", err);
+    console.error("❌ Ошибка генерации карточки:", err);
     return { error: true };
   }
 }
@@ -88,7 +90,7 @@ async function giveCard(user) {
 
   pendingUsers.add(user.id);
 
-  const card = await generateAICard(user.id);
+  const card = await generateAICard();
   pendingUsers.delete(user.id);
 
   if (card.error) {
@@ -148,11 +150,17 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
           "Нажми кнопку ниже, чтобы получить свою уникальную карточку.",
         components: [row],
       });
-    } catch {}
+      console.log(`📩 Отправлено DM пользователю ${member.id}`);
+    } catch (err) {
+      console.error(
+        `❌ Не удалось отправить DM пользователю ${member.id}:`,
+        err
+      );
+    }
   }
 });
 
-// ---------------- Обработка кнопки ----------------
+// ---------------- Кнопка ----------------
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId !== "get_card") return;
