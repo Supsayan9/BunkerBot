@@ -9,6 +9,12 @@ const {
   AttachmentBuilder,
 } = require("discord.js");
 
+const OpenAI = require("openai");
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -20,25 +26,56 @@ const client = new Client({
 const userCards = new Map();
 const greetedUsers = new Set();
 
-// ---------------- КАРТОЧКИ ----------------
-const cards = [
-  { name: "Инженер", power: 4, skill: "Ловушки" },
-  { name: "Доктор", power: 3, skill: "Лечение" },
-  { name: "Разведчик", power: 2, skill: "Скрытность" },
-  { name: "Военный", power: 5, skill: "Оружие" },
-];
+// ---------------- PROMPT БУНКЕРА ----------------
+const BUNKER_PROMPT = `
+Ты — ведущий психологической игры «Бункер».
+
+Сгенерируй УНИКАЛЬНУЮ карточку персонажа для одного игрока.
+
+Правила:
+- Карточка реалистичная
+- Полезная, но с изъянами
+- Добавляй конфликтный потенциал
+- Не повторяй роли
+
+Верни ТОЛЬКО JSON:
+
+{
+  "profession": "",
+  "age": number,
+  "health": "",
+  "phobia": "",
+  "skill": "",
+  "hobby": "",
+  "trait": "",
+  "secret": "",
+  "usefulness": "",
+  "conflict": ""
+}
+`;
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
+// ---------------- AI КАРТОЧКА ----------------
+async function generateAICard() {
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "system", content: BUNKER_PROMPT }],
+    temperature: 0.9,
+  });
+
+  return JSON.parse(response.choices[0].message.content);
+}
+
 // ---------------- ВЫДАЧА КАРТОЧКИ ----------------
 async function giveCard(user) {
   if (!user || !user.id) return;
   if (userCards.has(user.id)) return;
 
-  const card = cards[Math.floor(Math.random() * cards.length)];
+  const card = await generateAICard();
   userCards.set(user.id, card);
 
   const avatar = `https://avatars.dicebear.com/api/bottts/${user.id}.png`;
@@ -48,14 +85,21 @@ async function giveCard(user) {
     const dm = await user.createDM();
     await dm.send({
       content:
-        `🎴 **Твоя карточка персонажа**\n\n` +
-        `👤 Роль: **${card.name}**\n` +
-        `💪 Сила: **${card.power}**\n` +
-        `🧠 Навык: **${card.skill}**`,
+        `🎴 **ТВОЯ КАРТОЧКА (БУНКЕР)**\n\n` +
+        `👤 Профессия: **${card.profession}**\n` +
+        `🎂 Возраст: **${card.age}**\n` +
+        `❤️ Здоровье: **${card.health}**\n` +
+        `😨 Фобия: **${card.phobia}**\n` +
+        `🧠 Навык: **${card.skill}**\n` +
+        `🎯 Хобби: **${card.hobby}**\n` +
+        `🧬 Черта: **${card.trait}**\n\n` +
+        `🤫 **Секрет:** ${card.secret}\n\n` +
+        `🛠 Польза: ${card.usefulness}\n` +
+        `⚠️ Конфликт: ${card.conflict}`,
       files: [file],
     });
   } catch {
-    // если DM закрыты — просто молча игнорим
+    // DM закрыты — игнор
   }
 }
 
@@ -82,11 +126,11 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       await member.send({
         content:
           "🏰 **Добро пожаловать в Бункер**\n\n" +
-          "Нажми кнопку ниже, чтобы получить свою карточку.",
+          "Нажми кнопку ниже, чтобы получить уникальную карточку.",
         components: [row],
       });
     } catch {
-      // DM закрыты — не критично
+      // DM закрыты
     }
   }
 });
@@ -98,7 +142,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   if (userCards.has(interaction.user.id)) {
     return interaction.reply({
-      content: "❌ У тебя уже есть карточка.",
+      content: "❌ Ты уже получил карточку.",
       ephemeral: true,
     });
   }
