@@ -1,4 +1,5 @@
 require("dotenv").config();
+const fetch = require("node-fetch");
 const {
   Client,
   GatewayIntentBits,
@@ -6,17 +7,16 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder,
+  EmbedBuilder,
 } = require("discord.js");
-const { OpenAI } = require("openai");
 
 // ---------------- Проверка токенов ----------------
 if (!process.env.DISCORD_TOKEN) {
   console.error("❌ DISCORD_TOKEN не найден в .env");
   process.exit(1);
 }
-if (!process.env.OPENROUTER_API_KEY) {
-  console.error("❌ OPENROUTER_API_KEY не найден в .env");
+if (!process.env.APIFREE_KEY) {
+  console.error("❌ APIFREE_KEY не найден в .env");
   process.exit(1);
 }
 
@@ -31,9 +31,6 @@ const client = new Client({
   partials: ["CHANNEL"], // чтобы бот мог отправлять DM
 });
 
-// ---------------- OpenRouter ----------------
-const openai = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY });
-
 // ---------------- Состояние пользователей ----------------
 const userCards = new Map();
 const greetedUsers = new Set();
@@ -45,37 +42,47 @@ client.once(Events.ClientReady, () => {
 });
 
 // ---------------- Генерация карточки ----------------
-async function generateAICard(userId) {
+async function generateBunkerCard(userId) {
   const prompt = `
-Создай уникальную карточку персонажа для игры "Бункер Онлайн".
-Карточка должна быть в формате JSON со следующими полями:
-- Пол
-- Телосложение
-- Человеческая черта
+Создай уникального персонажа для игры "Бункер" (3-е издание).
+Карточка должна быть в формате JSON с полями:
 - Профессия
 - Здоровье
-- Хобби / Увлечение
-- Фобия / Страх
-- Крупный инвентарь
-- Рюкзак
+- Хобби
+- Факт
+- Биология
+- Особые Условия
+- Рюкзак (массив предметов)
 - Дополнительное сведение
 - Спец. возможность
 
-Сделай персонажа интересным, с разнообразными чертами и увлекательной историей. 
-Не добавляй лишнего текста вне JSON.
+Персонаж должен быть полезен для выживания и иметь интересные черты.
+Не добавляй ничего вне JSON.
 `;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
+    const response = await fetch("https://api.apifree.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.APIFREE_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-5.2",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 2000,
+        stream: false,
+      }),
     });
 
-    const text = response.choices?.[0]?.message?.content || "";
+    const data = await response.json();
+    let text = data.choices?.[0]?.message?.content || "";
+    text = text.replace(/```json|```/g, "").trim();
+
     try {
       return JSON.parse(text);
-    } catch {
-      console.error("❌ Ошибка парсинга JSON от OpenAI:", text);
+    } catch (err) {
+      console.error("❌ Ошибка парсинга JSON от GPT 5.2:", text);
       return { error: true, raw: text };
     }
   } catch (err) {
@@ -85,13 +92,12 @@ async function generateAICard(userId) {
 }
 
 // ---------------- Выдача карточки ----------------
-async function giveCard(user) {
+async function giveBunkerCard(user) {
   if (!user || !user.id) return;
   if (userCards.has(user.id) || pendingUsers.has(user.id)) return;
 
   pendingUsers.add(user.id);
-
-  const card = await generateAICard(user.id);
+  const card = await generateBunkerCard(user.id);
   pendingUsers.delete(user.id);
 
   if (card.error) {
@@ -103,26 +109,40 @@ async function giveCard(user) {
 
   userCards.set(user.id, card);
 
-  const avatarUrl = `https://avatars.dicebear.com/api/bottts/${user.id}.png`;
-  const file = new AttachmentBuilder(avatarUrl, { name: "card.png" });
+  const backpack = Array.isArray(card.Рюкзак)
+    ? card.Рюкзак.join("\n")
+    : card.Рюкзак || "–";
+
+  const embed = new EmbedBuilder()
+    .setTitle("🎴 Карточка персонажа")
+    .setColor("#FF4500")
+    .setThumbnail(`https://avatars.dicebear.com/api/bottts/${user.id}.png`)
+    .addFields(
+      { name: "⚒ Профессия", value: card.Профессия || "–", inline: true },
+      { name: "❤️ Здоровье", value: card.Здоровье || "–", inline: true },
+      { name: "🎲 Хобби", value: card.Хобби || "–", inline: true },
+      { name: "📖 Факт", value: card.Факт || "–", inline: false },
+      { name: "🧬 Биология", value: card.Биология || "–", inline: true },
+      {
+        name: "⭐ Особые Условия",
+        value: card["Особые Условия"] || "–",
+        inline: true,
+      },
+      { name: "🎒 Рюкзак", value: backpack, inline: false },
+      {
+        name: "📝 Дополнительное сведение",
+        value: card["Дополнительное сведение"] || "–",
+        inline: false,
+      },
+      {
+        name: "✨ Спец. возможность",
+        value: card["Спец. возможность"] || "–",
+        inline: false,
+      }
+    );
 
   try {
-    await user.send({
-      content:
-        `🎴 **Твоя карточка персонажа для Бункера Онлайн**\n\n` +
-        `👤 Пол: **${card.Пол || "–"}**\n` +
-        `💪 Телосложение: **${card.Телосложение || "–"}**\n` +
-        `🧠 Человеческая черта: **${card["Человеческая черта"] || "–"}**\n` +
-        `⚒ Профессия: **${card.Профессия || "–"}**\n` +
-        `❤️ Здоровье: **${card.Здоровье || "–"}**\n` +
-        `🎲 Хобби/Увлечение: **${card["Хобби / Увлечение"] || "–"}**\n` +
-        `💀 Фобия/Страх: **${card["Фобия / Страх"] || "–"}**\n` +
-        `🎒 Крупный инвентарь: **${card["Крупный инвентарь"] || "–"}**\n` +
-        `👜 Рюкзак: **${card.Рюкзак || "–"}**\n` +
-        `📝 Доп. сведения: **${card["Дополнительное сведение"] || "–"}**\n` +
-        `✨ Спец. возможность: **${card["Спец. возможность"] || "–"}**`,
-      files: [file],
-    });
+    await user.send({ embeds: [embed] });
   } catch (err) {
     console.error(`❌ Не удалось отправить DM пользователю ${user.id}:`, err);
   }
@@ -168,18 +188,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (userCards.has(interaction.user.id)) {
     return interaction.reply({
       content: "❌ У тебя уже есть карточка.",
-      ephemeral: true,
+      flags: 64, // ephemeral
     });
   }
 
   if (pendingUsers.has(interaction.user.id)) {
     return interaction.reply({
       content: "⌛ Карточка формируется, подожди немного...",
-      ephemeral: true,
+      flags: 64,
     });
   }
 
-  await giveCard(interaction.user);
+  await giveBunkerCard(interaction.user);
 
   const disabledRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -189,10 +209,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .setDisabled(true)
   );
 
-  await interaction.update({
-    content: "✅ Карточка отправлена в личные сообщения.",
-    components: [disabledRow],
-  });
+  try {
+    await interaction.update({
+      content: "✅ Карточка отправлена в личные сообщения.",
+      components: [disabledRow],
+    });
+  } catch (err) {
+    console.error("❌ Ошибка при обновлении кнопки:", err);
+    try {
+      await interaction.followUp({
+        content: "✅ Карточка отправлена в личные сообщения.",
+        components: [disabledRow],
+        flags: 64,
+      });
+    } catch {}
+  }
 });
 
 // ---------------- Логин ----------------
