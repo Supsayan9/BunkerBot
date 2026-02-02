@@ -11,6 +11,7 @@ const {
 
 const { OpenAI } = require("openai");
 
+// ---------------- DISCORD ----------------
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -20,13 +21,13 @@ const client = new Client({
   ],
 });
 
-const userCards = new Map(); // Хранение готовых карточек
+const userCards = new Map(); // Готовые карточки
 const greetedUsers = new Set(); // Чтобы не слать кнопку дважды
-const pendingUsers = new Set(); // Чтобы не делать несколько запросов к API одновременно
+const pendingUsers = new Set(); // Чтобы не делать несколько запросов одновременно
 
-// ---------------- OpenRouter ----------------
+// ---------------- OPENROUTER ----------------
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY, // ключ OpenRouter
+  apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 // ---------------- READY ----------------
@@ -56,9 +57,9 @@ secret - секрет
       messages: [{ role: "user", content: prompt }],
     });
 
-    const text = response.choices[0].message.content;
+    const text = response.choices?.[0]?.message?.content;
+    if (!text) throw new Error("❌ Пустой ответ от OpenRouter");
 
-    // Попытка распарсить JSON
     let cardData = {};
     try {
       cardData = JSON.parse(text);
@@ -76,14 +77,13 @@ secret - секрет
 // ---------------- ВЫДАЧА КАРТОЧКИ ----------------
 async function giveCard(user) {
   if (!user || !user.id) return;
-  if (userCards.has(user.id)) return;
-  if (pendingUsers.has(user.id)) return; // Уже в процессе
+  if (userCards.has(user.id) || pendingUsers.has(user.id)) return;
 
-  pendingUsers.add(user.id); // Блокируем пользователя
+  pendingUsers.add(user.id);
 
   const card = await generateAICard(user.id);
 
-  pendingUsers.delete(user.id); // Снимаем блокировку
+  pendingUsers.delete(user.id);
 
   if (card.error) {
     try {
@@ -94,7 +94,6 @@ async function giveCard(user) {
 
   userCards.set(user.id, card);
 
-  // Для аватара используем DiceBear PNG
   const avatar = `https://avatars.dicebear.com/api/bottts/${user.id}.png`;
   const file = new AttachmentBuilder(avatar, { name: "card.png" });
 
@@ -103,9 +102,9 @@ async function giveCard(user) {
     await dm.send({
       content:
         `🎴 **Твоя карточка персонажа**\n\n` +
-        `👤 Роль: **${card.name}**\n` +
-        `💪 Сила: **${card.power}**\n` +
-        `🧠 Навык: **${card.skill}**\n` +
+        `👤 Роль: **${card.name || "–"}**\n` +
+        `💪 Сила: **${card.power || "–"}**\n` +
+        `🧠 Навык: **${card.skill || "–"}**\n` +
         `🎯 Полезность: **${card.utility || "–"}**\n` +
         `⚔ Конфликт: **${card.conflict || "–"}**\n` +
         `💀 Страх: **${card.fear || "–"}**\n` +
@@ -169,7 +168,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   await giveCard(interaction.user);
 
-  // Деактивируем кнопку
   const disabledRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("get_card")
