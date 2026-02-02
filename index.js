@@ -134,11 +134,70 @@ async function giveCard(user) {
 
   userCards.set(user.id, true);
 
+  // Делим текст на блоки
+  const blocks = cardText.split("\n\n");
+
   const embed = new EmbedBuilder()
-    .setTitle("🎴 Игрок — 9 карт (рубашкой вверх)")
-    .setColor(0x8e44ad)
-    .setDescription(`🌍 **Апокалипсис:** ${currentApocalypse}\n\n${cardText}`)
-    .setFooter({ text: "Бункер Онлайн | Желаем выжить!" });
+    .setTitle("🎴 КАРТОЧКА ИГРОКА")
+    .setDescription(
+      `╔════════════════════╗\n` +
+        `🌍 **АПОКАЛИПСИС** 🌍\n` +
+        `**${currentApocalypse}**\n` +
+        `╚════════════════════╝`
+    )
+    .setColor(0x9b59b6)
+    .setThumbnail("https://i.imgur.com/7yUvePI.png") // можно заменить
+    .addFields(
+      {
+        name: "🃏 Профессия",
+        value: blocks[1] || "—",
+        inline: true,
+      },
+      {
+        name: "❤️ Здоровье",
+        value: blocks[3] || "—",
+        inline: true,
+      },
+      {
+        name: "🧬 Биологические характеристики",
+        value: blocks[5] || "—",
+        inline: false,
+      },
+      {
+        name: "🎲 Хобби",
+        value: blocks[7] || "—",
+        inline: true,
+      },
+      {
+        name: "💀 Фобия",
+        value: blocks[9] || "—",
+        inline: true,
+      },
+      {
+        name: "📎 Дополнительная информация",
+        value: blocks[11] || "—",
+        inline: false,
+      },
+      {
+        name: "🧠 Человеческие качества",
+        value: blocks[13] || "—",
+        inline: false,
+      },
+      {
+        name: "🟣 Специальное условие I",
+        value: blocks[15] || "—",
+        inline: false,
+      },
+      {
+        name: "🟣 Специальное условие II",
+        value: blocks[17] || "—",
+        inline: false,
+      }
+    )
+    .setFooter({
+      text: "Бункер Онлайн • Судьба человечества решается сейчас",
+    })
+    .setTimestamp();
 
   await user.send({ embeds: [embed] });
 }
