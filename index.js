@@ -8,38 +8,37 @@ const {
   ButtonStyle,
   AttachmentBuilder,
 } = require("discord.js");
-const fetch = require("node-fetch"); // npm install node-fetch
+const { joinVoiceChannel } = require("@discordjs/voice");
+const fetch = require("node-fetch"); // Если Node 18+, fetch встроенный
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
   ],
 });
 
-const userCards = new Map(); // Хранение карточек
-const greetedUsers = new Set(); // Чтобы приветствие отправлялось 1 раз
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const userCards = new Map();
+const greetedUsers = new Set();
+const connections = new Map();
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
-// ---------------- ФУНКЦИЯ ГЕНЕРАЦИИ AI-КАРТОЧКИ ----------------
+// ---------------- AI-КАРТОЧКА ----------------
 async function generateAICard(userId) {
   const prompt = `
 Ты — ведущий психологической игры "Бункер".
 Сгенерируй уникальную карточку персонажа для игрока.
-
 Верни строго JSON:
-
 {
   "profession": "",
-  "age": number,
+  "age": 0,
   "health": "",
   "phobia": "",
   "skill": "",
@@ -48,8 +47,7 @@ async function generateAICard(userId) {
   "secret": "",
   "usefulness": "",
   "conflict": ""
-}
-`;
+}`;
 
   try {
     const response = await fetch(
@@ -69,18 +67,38 @@ async function generateAICard(userId) {
     );
 
     const data = await response.json();
-    const text = data?.choices?.[0]?.message?.content || "{}";
+    let text = data?.choices?.[0]?.message?.content || "{}";
 
-    return JSON.parse(text);
+    // Чистим ```json ... ``` если есть
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/```json/, "")
+        .replace(/```/, "")
+        .trim();
+    }
+
+    const parsed = JSON.parse(text);
+
+    return {
+      profession: parsed.profession || "Выживший",
+      age: parsed.age || 25,
+      health: parsed.health || "Нормальное",
+      phobia: parsed.phobia || "Ни одной",
+      skill: parsed.skill || "Адаптация",
+      hobby: parsed.hobby || "Наблюдение",
+      trait: parsed.trait || "Хладнокровный",
+      secret: parsed.secret || "Не раскрывает страхи",
+      usefulness: parsed.usefulness || "Средняя",
+      conflict: parsed.conflict || "Низкий",
+    };
   } catch (err) {
     console.error(
-      "❌ OpenRouter error, использую запасную карточку:",
+      "❌ OpenRouter error, используем запасную карточку:",
       err.message
     );
-    // fallback
     return {
       profession: "Выживший",
-      age: 30,
+      age: 25,
       health: "Нормальное",
       phobia: "Ни одной",
       skill: "Адаптация",
@@ -93,7 +111,7 @@ async function generateAICard(userId) {
   }
 }
 
-// ---------------- ФУНКЦИЯ ВЫДАЧИ КАРТОЧКИ ----------------
+// ---------------- ВЫДАЧА КАРТОЧКИ ----------------
 async function giveCard(user) {
   if (!user || !user.id) return;
   if (userCards.has(user.id)) return;
@@ -124,17 +142,35 @@ async function giveCard(user) {
   }
 }
 
-// ---------------- ВХОД В КАНАЛ ----------------
+// ---------------- ПОДКЛЮЧЕНИЕ КАНАЛ ----------------
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const member = newState.member;
   if (!member || member.user.bot) return;
 
+  const oldChannel = oldState.channel;
+  const newChannel = newState.channel;
+
   if (
-    newState.channel &&
-    newState.channel.name.toLowerCase() === "бункер" &&
+    newChannel &&
+    newChannel.name.toLowerCase() === "бункер" &&
     !greetedUsers.has(member.id)
   ) {
     greetedUsers.add(member.id);
+
+    // Подключаемся к каналу
+    try {
+      if (!connections.has(newChannel.guild.id)) {
+        const connection = joinVoiceChannel({
+          channelId: newChannel.id,
+          guildId: newChannel.guild.id,
+          adapterCreator: newChannel.guild.voiceAdapterCreator,
+        });
+        connections.set(newChannel.guild.id, connection);
+        console.log(`🔊 Бот подключился к каналу "${newChannel.name}"`);
+      }
+    } catch (err) {
+      console.error("❌ Не удалось подключиться к каналу:", err);
+    }
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -147,11 +183,27 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       await member.send({
         content:
           "🏰 **Добро пожаловать в Бункер**\n\n" +
-          "Нажми кнопку ниже, чтобы получить свою уникальную карточку персонажа.",
+          "Нажми кнопку ниже, чтобы получить свою уникальную карточку.",
         components: [row],
       });
     } catch {
-      console.log(`❌ Не удалось отправить приветствие DM ${member.user.tag}`);
+      console.log(`❌ Не удалось отправить DM ${member.user.tag}`);
+    }
+  }
+
+  // Выход из канала, если никого не осталось
+  const connection = connections.get(newState.guild.id);
+  if (connection) {
+    const botChannel = newState.guild.channels.cache.get(
+      connection.joinConfig.channelId
+    );
+    if (!botChannel) return;
+
+    const nonBotMembers = botChannel.members.filter((m) => !m.user.bot);
+    if (nonBotMembers.size === 0) {
+      connection.destroy();
+      connections.delete(newState.guild.id);
+      console.log(`🔌 Бот вышел из канала "${botChannel.name}"`);
     }
   }
 });
@@ -179,7 +231,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   );
 
   await interaction.update({
-    content: "✅ Твоя карточка была отправлена в личные сообщения!",
+    content: "✅ Твоя карточка отправлена в личные сообщения!",
     components: [disabledRow],
   });
 });
