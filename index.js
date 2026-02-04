@@ -129,8 +129,12 @@ async function generatePlayerCard() {
 function parseCardText(cardText) {
   const sections = new Map();
   const text = String(cardText || "").replace(/\r\n/g, "\n").trim();
-  const headerRegex =
-    /(?:^|\n)\s*(?:[🃏🤡🎴]\s*)?Карта\s*\d+\s*[—–-]\s*(.+?)\s*\n/g;
+  const titles =
+    "Профессия|Здоровье|Биологические характеристики|Хобби|Фобия|Дополнительная информация|Человеческие качества|Специальное условие";
+  const headerRegex = new RegExp(
+    String.raw`(?:^|\n)\s*(?:[🃏🤡🎴]\s*)?(?:Карта|Карточка)\s*№?\s*\d+\s*[—–-]\s*(${titles})\s*(?::\s*)?`,
+    "g"
+  );
 
   const matches = [];
   let match;
