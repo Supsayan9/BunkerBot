@@ -74,6 +74,7 @@ async function generatePlayerCard() {
 - Возраст строго число от 10 до 100
 - В каждом пункте ТОЛЬКО ОДНО условие
 - Никаких прочерков, "нет", "—"
+- Специальные условия должны быть в стиле игровых правил (например: "замена возраста", "замена здоровья", "обязательная изоляция", "ограничение по предметам") и не повторять другие поля
 
 Формат ВЫВОДА СТРОГО такой:
 
@@ -153,16 +154,24 @@ async function fetchPexelsPhoto(query) {
   return photo?.src?.medium || null;
 }
 
+function detectGender(sections) {
+  const bio = (sections.get("Биологические характеристики")?.[0] || "")
+    .toLowerCase();
+  if (bio.includes("жен") || bio.includes("дев")) return "female";
+  if (bio.includes("муж") || bio.includes("пар")) return "male";
+  return "person";
+}
+
 async function getCardImageUrl(sections) {
   const profession = sections.get("Профессия")?.[0] || "";
   const apocalypse = currentApocalypse || "";
-  const bio = sections.get("Биологические характеристики")?.[0] || "";
+  const gender = detectGender(sections);
 
   const queries = [
-    `${profession}, portrait`,
-    `${profession}`,
-    `${apocalypse}`,
-    `${bio}, portrait`,
+    `${profession}, ${gender} portrait`,
+    `${profession} ${gender}`,
+    `${gender} portrait`,
+    `${apocalypse} survivor ${gender}`,
     "survivor portrait",
   ];
 
@@ -192,7 +201,8 @@ function parseCardText(cardText) {
   };
 
   for (const rawLine of lines) {
-    const line = rawLine.replace(/^[^Кк]*/, "").trim();
+    const idx = rawLine.toLowerCase().indexOf("карта");
+    const line = (idx >= 0 ? rawLine.slice(idx) : rawLine).trim();
     const match = headerRegex.exec(line);
     if (match) {
       pushCurrent();
