@@ -337,12 +337,21 @@ async function giveCard(user) {
   await user.send({ embeds: [embed] });
 }
 
-async function sendStatus(statusTarget, user, content, interaction) {
+async function sendStatus(statusTarget, user, content, interaction, message) {
   if (statusTarget === "ephemeral" && interaction) {
     if (interaction.replied || interaction.deferred) {
       await interaction.editReply({ content });
     } else {
       await interaction.reply({ content, ephemeral: true });
+    }
+    return;
+  }
+
+  if (statusTarget === "channel" && message) {
+    try {
+      await message.reply(content);
+    } catch (_) {
+      // Ignore send failures
     }
     return;
   }
@@ -360,6 +369,7 @@ async function handleCardRequest({
   user,
   statusTarget = "dm",
   interaction = null,
+  message = null,
 }) {
   if (userCards.has(user.id)) {
     await sendStatus(
@@ -367,6 +377,8 @@ async function handleCardRequest({
       user,
       "❌ У тебя уже есть карточка.",
       interaction
+      ,
+      message
     );
     return;
   }
@@ -377,11 +389,19 @@ async function handleCardRequest({
       user,
       "⌛ Карточка уже формируется...",
       interaction
+      ,
+      message
     );
     return;
   }
 
-  await sendStatus(statusTarget, user, "⌛ Карточка формируется...", interaction);
+  await sendStatus(
+    statusTarget,
+    user,
+    "⌛ Карточка формируется...",
+    interaction,
+    message
+  );
 
   await giveCard(user);
 
@@ -389,7 +409,8 @@ async function handleCardRequest({
     statusTarget,
     user,
     "✅ Карточка отправлена в личные сообщения.",
-    interaction
+    interaction,
+    message
   );
 }
 
@@ -440,18 +461,22 @@ client.on(Events.MessageCreate, async (message) => {
   if (content === "!card reset" || content === "!карта сброс") {
     userCards.delete(message.author.id);
     pendingUsers.delete(message.author.id);
+    const target = message.channel?.isDMBased?.() ? "channel" : "dm";
     await handleCardRequest({
       user: message.author,
-      statusTarget: "dm",
+      statusTarget: target,
+      message,
     });
     return;
   }
 
   if (content !== "!card" && content !== "!карта") return;
 
+  const target = message.channel?.isDMBased?.() ? "channel" : "dm";
   await handleCardRequest({
     user: message.author,
-    statusTarget: "dm",
+    statusTarget: target,
+    message,
   });
 });
 
