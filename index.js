@@ -99,6 +99,10 @@ async function generatePlayerCard() {
 
 🃏 Карта 9 — Специальное условие
 <текст>
+
+Важно:
+- Заголовок карты всегда ОТДЕЛЬНОЙ строкой
+- Следующая строка содержит только текст карты
 `;
 
   const res = await fetch("https://api.apifree.ai/v1/chat/completions", {
@@ -129,31 +133,33 @@ async function generatePlayerCard() {
 function parseCardText(cardText) {
   const sections = new Map();
   const text = String(cardText || "").replace(/\r\n/g, "\n").trim();
-  const titles =
-    "Профессия|Здоровье|Биологические характеристики|Хобби|Фобия|Дополнительная информация|Человеческие качества|Специальное условие";
-  const headerRegex = new RegExp(
-    String.raw`(?:^|\n)\s*(?:[🃏🤡🎴]\s*)?(?:Карта|Карточка)\s*№?\s*\d+\s*[—–-]\s*(${titles})\s*(?::\s*)?`,
-    "g"
-  );
+  const lines = text.split("\n");
+  const headerRegex =
+    /^(?:\s*)(?:Карта|Карточка)\s*№?\s*\d+\s*[—–-]\s*(.+?)\s*$/i;
 
-  const matches = [];
-  let match;
-  while ((match = headerRegex.exec(text)) !== null) {
-    matches.push({
-      title: match[1].trim().replace(/\*\*/g, ""),
-      contentStart: headerRegex.lastIndex,
-      index: match.index,
-    });
+  let currentTitle = null;
+  let buffer = [];
+
+  const pushCurrent = () => {
+    if (!currentTitle) return;
+    const value = buffer.join("\n").trim();
+    if (!sections.has(currentTitle)) sections.set(currentTitle, []);
+    sections.get(currentTitle).push(value);
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^[^Кк]*/, "").trim();
+    const match = headerRegex.exec(line);
+    if (match) {
+      pushCurrent();
+      currentTitle = match[1].trim().replace(/\*\*/g, "");
+      buffer = [];
+    } else if (currentTitle) {
+      buffer.push(rawLine);
+    }
   }
 
-  for (let i = 0; i < matches.length; i += 1) {
-    const current = matches[i];
-    const next = matches[i + 1];
-    const end = next ? next.index : text.length;
-    const value = text.slice(current.contentStart, end).trim();
-    if (!sections.has(current.title)) sections.set(current.title, []);
-    sections.get(current.title).push(value);
-  }
+  pushCurrent();
 
   return sections;
 }
@@ -183,10 +189,27 @@ async function giveCard(user) {
   const spec = sections.get("Специальное условие") || [];
 
   if (sections.size === 0) {
-    await user.send(
-      "⚠️ Не удалось корректно разобрать карточку. Отправляю как есть:\n\n" +
-        cardText
-    );
+    const fallback = new EmbedBuilder()
+      .setTitle("🎴 КАРТОЧКА ИГРОКА")
+      .setDescription(
+        `╔════════════════════╗\n` +
+          `🌍 **АПОКАЛИПСИС** 🌍\n` +
+          `**${currentApocalypse}**\n` +
+          `╚════════════════════╝`
+      )
+      .setColor(0x9b59b6)
+      .setThumbnail("https://i.imgur.com/7yUvePI.png")
+      .addFields({
+        name: "⚠️ Сырой текст",
+        value: clampField(cardText),
+        inline: false,
+      })
+      .setFooter({
+        text: "Бункер Онлайн • Судьба человечества решается сейчас",
+      })
+      .setTimestamp();
+
+    await user.send({ embeds: [fallback] });
     return;
   }
 
