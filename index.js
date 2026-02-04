@@ -7,7 +7,6 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  ApplicationCommandOptionType,
 } = require("discord.js");
 const fetch = require("node-fetch");
 
@@ -58,28 +57,9 @@ function chooseApocalypse() {
 }
 
 // ---------------- READY ----------------
-client.once(Events.ClientReady, async () => {
+client.once(Events.ClientReady, () => {
   chooseApocalypse();
   console.log(`✅ Бот запущен как ${client.user.tag}`);
-
-  try {
-    await client.application.commands.set([
-      {
-        name: "card",
-        description: "Получить карточку игрока",
-        options: [
-          {
-            type: ApplicationCommandOptionType.Subcommand,
-            name: "reset",
-            description: "Сбросить и получить новую карточку",
-          },
-        ],
-      },
-    ]);
-    console.log("✅ Slash-команды зарегистрированы");
-  } catch (err) {
-    console.error("❌ Не удалось зарегистрировать slash-команды:", err);
-  }
 });
 
 // ---------------- Генерация ОДНОЙ карточки ----------------
@@ -475,27 +455,6 @@ client.on(Events.VoiceStateUpdate, async (_, newState) => {
 
 // ---------------- Кнопка ----------------
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName !== "card") return;
-
-    const sub = interaction.options.getSubcommand(false);
-    if (sub === "reset") {
-      userCards.delete(interaction.user.id);
-      pendingUsers.delete(interaction.user.id);
-    }
-
-    const target = interaction.channel?.isDMBased?.()
-      ? "interaction"
-      : "ephemeral";
-
-    await handleCardRequest({
-      user: interaction.user,
-      statusTarget: target,
-      interaction,
-    });
-    return;
-  }
-
   if (!interaction.isButton()) return;
   if (interaction.customId !== "get_card") return;
 
