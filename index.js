@@ -19,6 +19,10 @@ if (!process.env.APIFREE_KEY) {
   console.error("❌ APIFREE_KEY не найден в .env");
   process.exit(1);
 }
+if (!process.env.PEXELS_KEY) {
+  console.error("❌ PEXELS_KEY не найден в .env");
+  process.exit(1);
+}
 
 // ---------------- Инициализация бота ----------------
 const client = new Client({
@@ -130,6 +134,46 @@ async function generatePlayerCard() {
   return data.choices?.[0]?.message?.content || null;
 }
 
+async function fetchPexelsPhoto(query) {
+  const url = new URL("https://api.pexels.com/v1/search");
+  url.searchParams.set("query", query);
+  url.searchParams.set("per_page", "1");
+  url.searchParams.set("orientation", "square");
+  url.searchParams.set("size", "medium");
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: process.env.PEXELS_KEY,
+    },
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  const photo = data?.photos?.[0];
+  return photo?.src?.medium || null;
+}
+
+async function getCardImageUrl(sections) {
+  const profession = sections.get("Профессия")?.[0] || "";
+  const apocalypse = currentApocalypse || "";
+  const bio = sections.get("Биологические характеристики")?.[0] || "";
+
+  const queries = [
+    `${profession}, portrait`,
+    `${profession}`,
+    `${apocalypse}`,
+    `${bio}, portrait`,
+    "survivor portrait",
+  ];
+
+  for (const q of queries) {
+    const img = await fetchPexelsPhoto(q);
+    if (img) return img;
+  }
+
+  return null;
+}
+
 function parseCardText(cardText) {
   const sections = new Map();
   const text = String(cardText || "").replace(/\r\n/g, "\n").trim();
@@ -213,6 +257,8 @@ async function giveCard(user) {
     return;
   }
 
+  const photoUrl = await getCardImageUrl(sections);
+
   const embed = new EmbedBuilder()
     .setTitle("🎴 КАРТОЧКА ИГРОКА")
     .setDescription(
@@ -222,7 +268,8 @@ async function giveCard(user) {
         `╚════════════════════╝`
     )
     .setColor(0x9b59b6)
-    .setThumbnail("https://i.imgur.com/7yUvePI.png") // можно заменить
+    .setThumbnail("https://i.imgur.com/7yUvePI.png")
+    .setImage(photoUrl || "https://i.imgur.com/7yUvePI.png")
     .addFields(
       {
         name: "🃏 Профессия",
