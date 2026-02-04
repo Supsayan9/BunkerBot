@@ -109,7 +109,14 @@ async function generatePlayerCard() {
     },
     body: JSON.stringify({
       model: "openai/gpt-5.2",
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ты отвечаешь строго в формате карточек без лишних пояснений.",
+        },
+        { role: "user", content: prompt },
+      ],
       temperature: 1.1,
       max_tokens: 900,
     }),
@@ -117,6 +124,28 @@ async function generatePlayerCard() {
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content || null;
+}
+
+function parseCardText(cardText) {
+  const sections = new Map();
+  const regex =
+    /🃏\s*Карта\s*\d+\s*—\s*(.+?)\n([\s\S]*?)(?=\n🃏\s*Карта\s*\d+\s*—|\s*$)/g;
+
+  let match;
+  while ((match = regex.exec(cardText)) !== null) {
+    const title = match[1].trim();
+    const value = match[2].trim();
+    if (!sections.has(title)) sections.set(title, []);
+    sections.get(title).push(value);
+  }
+
+  return sections;
+}
+
+function clampField(value) {
+  if (!value) return "—";
+  if (value.length <= 1000) return value;
+  return `${value.slice(0, 1000)}…`;
 }
 
 // ---------------- Выдача карточки ----------------
@@ -134,8 +163,16 @@ async function giveCard(user) {
 
   userCards.set(user.id, true);
 
-  // Делим текст на блоки
-  const blocks = cardText.split("\n\n");
+  const sections = parseCardText(cardText);
+  const spec = sections.get("Специальное условие") || [];
+
+  if (sections.size === 0) {
+    await user.send(
+      "⚠️ Не удалось корректно разобрать карточку. Отправляю как есть:\n\n" +
+        cardText
+    );
+    return;
+  }
 
   const embed = new EmbedBuilder()
     .setTitle("🎴 КАРТОЧКА ИГРОКА")
@@ -150,47 +187,47 @@ async function giveCard(user) {
     .addFields(
       {
         name: "🃏 Профессия",
-        value: blocks[1] || "—",
+        value: clampField(sections.get("Профессия")?.[0]),
         inline: true,
       },
       {
         name: "❤️ Здоровье",
-        value: blocks[3] || "—",
+        value: clampField(sections.get("Здоровье")?.[0]),
         inline: true,
       },
       {
         name: "🧬 Биологические характеристики",
-        value: blocks[5] || "—",
+        value: clampField(sections.get("Биологические характеристики")?.[0]),
         inline: false,
       },
       {
         name: "🎲 Хобби",
-        value: blocks[7] || "—",
+        value: clampField(sections.get("Хобби")?.[0]),
         inline: true,
       },
       {
         name: "💀 Фобия",
-        value: blocks[9] || "—",
+        value: clampField(sections.get("Фобия")?.[0]),
         inline: true,
       },
       {
         name: "📎 Дополнительная информация",
-        value: blocks[11] || "—",
+        value: clampField(sections.get("Дополнительная информация")?.[0]),
         inline: false,
       },
       {
         name: "🧠 Человеческие качества",
-        value: blocks[13] || "—",
+        value: clampField(sections.get("Человеческие качества")?.[0]),
         inline: false,
       },
       {
         name: "🟣 Специальное условие I",
-        value: blocks[15] || "—",
+        value: clampField(spec[0]),
         inline: false,
       },
       {
         name: "🟣 Специальное условие II",
-        value: blocks[17] || "—",
+        value: clampField(spec[1]),
         inline: false,
       }
     )
