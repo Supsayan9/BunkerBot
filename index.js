@@ -337,6 +337,62 @@ async function giveCard(user) {
   await user.send({ embeds: [embed] });
 }
 
+async function sendStatus(statusTarget, user, content, interaction) {
+  if (statusTarget === "ephemeral" && interaction) {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({ content });
+    } else {
+      await interaction.reply({ content, ephemeral: true });
+    }
+    return;
+  }
+
+  if (statusTarget === "dm") {
+    try {
+      await user.send(content);
+    } catch (_) {
+      // Ignore DM failures
+    }
+  }
+}
+
+async function handleCardRequest({
+  user,
+  statusTarget = "dm",
+  interaction = null,
+}) {
+  if (userCards.has(user.id)) {
+    await sendStatus(
+      statusTarget,
+      user,
+      "❌ У тебя уже есть карточка.",
+      interaction
+    );
+    return;
+  }
+
+  if (pendingUsers.has(user.id)) {
+    await sendStatus(
+      statusTarget,
+      user,
+      "⌛ Карточка уже формируется...",
+      interaction
+    );
+    return;
+  }
+
+  await sendStatus(statusTarget, user, "⌛ Карточка формируется...", interaction);
+
+  await giveCard(user);
+
+  await sendStatus(
+    statusTarget,
+    user,
+    "✅ Карточка отправлена в личные сообщения.",
+    interaction
+  );
+}
+
 // ---------------- Вход в голос ----------------
 client.on(Events.VoiceStateUpdate, async (_, newState) => {
   const member = newState.member;
@@ -369,22 +425,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId !== "get_card") return;
 
-  if (userCards.has(interaction.user.id)) {
-    return interaction.reply({
-      content: "❌ У тебя уже есть карточка.",
-      ephemeral: true,
-    });
-  }
-
-  await interaction.reply({
-    content: "⌛ Карточка формируется...",
-    ephemeral: true,
-  });
-
-  await giveCard(interaction.user);
-
-  await interaction.editReply({
-    content: "✅ Карточка отправлена в личные сообщения.",
+  await handleCardRequest({
+    user: interaction.user,
+    statusTarget: "ephemeral",
+    interaction,
   });
 });
 
@@ -396,13 +440,19 @@ client.on(Events.MessageCreate, async (message) => {
   if (content === "!card reset" || content === "!карта сброс") {
     userCards.delete(message.author.id);
     pendingUsers.delete(message.author.id);
-    await message.reply("✅ Карточка сброшена. Можешь получить новую.");
+    await handleCardRequest({
+      user: message.author,
+      statusTarget: "dm",
+    });
     return;
   }
 
   if (content !== "!card" && content !== "!карта") return;
 
-  await giveCard(message.author);
+  await handleCardRequest({
+    user: message.author,
+    statusTarget: "dm",
+  });
 });
 
 // ---------------- Логин ----------------
