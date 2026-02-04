@@ -30,6 +30,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
   partials: ["CHANNEL"],
 });
@@ -384,6 +386,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
   await interaction.editReply({
     content: "✅ Карточка отправлена в личные сообщения.",
   });
+});
+
+// ---------------- Команда в чате ----------------
+client.on(Events.MessageCreate, async (message) => {
+  if (!message || message.author?.bot) return;
+
+  const content = (message.content || "").trim().toLowerCase();
+  if (content !== "!card" && content !== "!карта") return;
+
+  await giveCard(message.author);
 });
 
 // ---------------- Логин ----------------
