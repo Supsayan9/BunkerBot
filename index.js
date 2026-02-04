@@ -128,15 +128,27 @@ async function generatePlayerCard() {
 
 function parseCardText(cardText) {
   const sections = new Map();
-  const regex =
-    /🃏\s*Карта\s*\d+\s*—\s*(.+?)\n([\s\S]*?)(?=\n🃏\s*Карта\s*\d+\s*—|\s*$)/g;
+  const text = String(cardText || "").replace(/\r\n/g, "\n").trim();
+  const headerRegex =
+    /(?:^|\n)\s*(?:[🃏🤡🎴]\s*)?Карта\s*\d+\s*[—–-]\s*(.+?)\s*\n/g;
 
+  const matches = [];
   let match;
-  while ((match = regex.exec(cardText)) !== null) {
-    const title = match[1].trim();
-    const value = match[2].trim();
-    if (!sections.has(title)) sections.set(title, []);
-    sections.get(title).push(value);
+  while ((match = headerRegex.exec(text)) !== null) {
+    matches.push({
+      title: match[1].trim().replace(/\*\*/g, ""),
+      contentStart: headerRegex.lastIndex,
+      index: match.index,
+    });
+  }
+
+  for (let i = 0; i < matches.length; i += 1) {
+    const current = matches[i];
+    const next = matches[i + 1];
+    const end = next ? next.index : text.length;
+    const value = text.slice(current.contentStart, end).trim();
+    if (!sections.has(current.title)) sections.set(current.title, []);
+    sections.get(current.title).push(value);
   }
 
   return sections;
