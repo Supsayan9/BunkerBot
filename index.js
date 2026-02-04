@@ -393,6 +393,13 @@ client.on(Events.MessageCreate, async (message) => {
   if (!message || message.author?.bot) return;
 
   const content = (message.content || "").trim().toLowerCase();
+  if (content === "!card reset" || content === "!карта сброс") {
+    userCards.delete(message.author.id);
+    pendingUsers.delete(message.author.id);
+    await message.reply("✅ Карточка сброшена. Можешь получить новую.");
+    return;
+  }
+
   if (content !== "!card" && content !== "!карта") return;
 
   await giveCard(message.author);
